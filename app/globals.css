@@ -196,3 +196,66 @@
     height: 24px;
   }
 }
+
+/* Konten yang tidak perlu ditampilkan pada tab aktif */
+.tab-hidden {
+  display: none !important;
+}
+
+/* Tab Transaksi */
+.dashboard-grid.active-transactions {
+  grid-template-columns: 1fr;
+}
+
+.dashboard-grid.active-transactions .cashflow-panel,
+.dashboard-grid.active-transactions .budget-panel,
+.dashboard-grid.active-transactions .goals-panel {
+  display: none;
+}
+
+.dashboard-grid.active-transactions .transactions-panel {
+  grid-column: 1 / -1;
+}
+
+/* Tab Anggaran */
+.dashboard-grid.active-budgets {
+  grid-template-columns: 1fr;
+}
+
+.dashboard-grid.active-budgets .cashflow-panel,
+.dashboard-grid.active-budgets .transactions-panel,
+.dashboard-grid.active-budgets .goals-panel {
+  display: none;
+}
+
+.dashboard-grid.active-budgets .budget-panel {
+  grid-column: 1 / -1;
+}
+
+/* Tab Pos Tabungan */
+.dashboard-grid.active-goals {
+  grid-template-columns: 1fr;
+}
+
+.dashboard-grid.active-goals .cashflow-panel,
+.dashboard-grid.active-goals .transactions-panel,
+.dashboard-grid.active-goals .budget-panel {
+  display: none;
+}
+
+.dashboard-grid.active-goals .goals-panel {
+  grid-column: 1 / -1;
+}
+
+/* Lebih nyaman saat tab transaksi dibuka */
+.dashboard-grid.active-transactions .transaction-row {
+  padding: 12px 0;
+}
+
+.dashboard-grid.active-transactions .transaction-name b {
+  font-size: 12px;
+}
+
+.dashboard-grid.active-transactions .transaction-name small {
+  font-size: 10px;
+}

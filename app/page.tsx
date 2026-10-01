@@ -53,6 +53,7 @@ type Contribution = {
 };
 
 type FormType = "transaction" | "budget" | "goal" | "contribution";
+type Tab = "dashboard" | "transactions" | "budgets" | "goals";
 
 const money = (amount: number) =>
   new Intl.NumberFormat("id-ID", {
@@ -105,6 +106,8 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
 
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -129,6 +132,13 @@ export default function HomePage() {
   const [receiptBusy, setReceiptBusy] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const tabTitle = {
+    dashboard: "Dashboard",
+    transactions: "Transaksi",
+    budgets: "Anggaran",
+    goals: "Pos tabungan",
+  }[activeTab];
 
   const notify = (message: string) => {
     setToast(message);
@@ -318,15 +328,12 @@ export default function HomePage() {
     setError("");
     setEditingId(null);
     setModal(type);
-
     setTitle("");
     setAmount("");
     setTargetDate("");
     setTransactionDate(dateKey());
-
     setKind(initialKind);
     setCategory(initialKind === "income" ? "Gaji" : "Belanja");
-
     setSelectedGoal(goalId || goals[0]?.id || "");
   }
 
@@ -334,7 +341,6 @@ export default function HomePage() {
     setError("");
     setEditingId(item.id);
     setModal("transaction");
-
     setTitle(item.title);
     setAmount(String(Number(item.amount)));
     setCategory(item.category);
@@ -346,7 +352,6 @@ export default function HomePage() {
     setError("");
     setEditingId(item.id);
     setModal("budget");
-
     setTitle(item.category);
     setAmount(String(Number(item.limit_amount)));
   }
@@ -355,7 +360,6 @@ export default function HomePage() {
     setError("");
     setEditingId(item.id);
     setModal("goal");
-
     setTitle(item.name);
     setAmount(String(Number(item.target_amount)));
     setTargetDate(item.target_date || "");
@@ -365,7 +369,6 @@ export default function HomePage() {
     setError("");
     setEditingId(item.id);
     setModal("contribution");
-
     setSelectedGoal(item.goal_id);
     setAmount(String(Number(item.amount)));
   }
@@ -497,12 +500,8 @@ export default function HomePage() {
       return;
     }
 
-    const message = editingId
-      ? "Perubahan berhasil disimpan"
-      : "Data berhasil ditambahkan";
-
     closeForm();
-    notify(message);
+    notify(editingId ? "Perubahan berhasil disimpan" : "Data berhasil ditambahkan");
     await load();
   }
 
@@ -617,16 +616,6 @@ export default function HomePage() {
     return (
       <main className="shell">
         <section className="auth-card">
-          <div className="brand">
-            <span className="brand-icon">
-              <Wallet size={20} />
-            </span>
-            <span>
-              ruma<span className="brand-dot">.</span>
-              <small>MONEY, MADE SIMPLE</small>
-            </span>
-          </div>
-
           <h1>Hubungkan Supabase</h1>
           <p>
             Tambahkan NEXT_PUBLIC_SUPABASE_URL dan
@@ -725,18 +714,21 @@ export default function HomePage() {
         <div className="side-label">MENU UTAMA</div>
 
         <nav>
-          <button className="nav-item active">
+          <button
+            className={`nav-item ${
+              activeTab === "dashboard" ? "active" : ""
+            }`}
+            onClick={() => setActiveTab("dashboard")}
+          >
             <LayoutDashboard size={18} />
             <span>Dashboard</span>
           </button>
 
           <button
-            className="nav-item"
-            onClick={() =>
-              document
-                .getElementById("transactions")
-                ?.scrollIntoView({ behavior: "smooth" })
-            }
+            className={`nav-item ${
+              activeTab === "transactions" ? "active" : ""
+            }`}
+            onClick={() => setActiveTab("transactions")}
           >
             <CreditCard size={18} />
             <span>Transaksi</span>
@@ -744,24 +736,18 @@ export default function HomePage() {
           </button>
 
           <button
-            className="nav-item"
-            onClick={() =>
-              document
-                .getElementById("budgets")
-                ?.scrollIntoView({ behavior: "smooth" })
-            }
+            className={`nav-item ${
+              activeTab === "budgets" ? "active" : ""
+            }`}
+            onClick={() => setActiveTab("budgets")}
           >
             <PieChart size={18} />
             <span>Anggaran</span>
           </button>
 
           <button
-            className="nav-item"
-            onClick={() =>
-              document
-                .getElementById("goals")
-                ?.scrollIntoView({ behavior: "smooth" })
-            }
+            className={`nav-item ${activeTab === "goals" ? "active" : ""}`}
+            onClick={() => setActiveTab("goals")}
           >
             <Target size={18} />
             <span>Pos tabungan</span>
@@ -791,7 +777,7 @@ export default function HomePage() {
           <div className="crumb">
             <span>Workspace</span>
             <ChevronRight size={14} />
-            <b>Dashboard</b>
+            <b>{tabTitle}</b>
           </div>
 
           <div className="top-actions">
@@ -823,32 +809,73 @@ export default function HomePage() {
                   .toLocaleUpperCase("id-ID")}
               </div>
 
-              <h1>Ringkasan keuanganmu</h1>
-              <p>Data tersimpan di akun {user.email}.</p>
+              <h1>
+                {activeTab === "dashboard" && "Ringkasan keuanganmu"}
+                {activeTab === "transactions" && "Transaksi"}
+                {activeTab === "budgets" && "Anggaran bulanan"}
+                {activeTab === "goals" && "Pos tabungan"}
+              </h1>
+
+              <p>
+                {activeTab === "dashboard" &&
+                  `Data tersimpan di akun ${user.email}.`}
+                {activeTab === "transactions" &&
+                  "Catat pemasukan, pengeluaran, atau scan nota belanja."}
+                {activeTab === "budgets" &&
+                  "Atur batas pengeluaran untuk bulan ini."}
+                {activeTab === "goals" &&
+                  "Kelola tujuan tabungan dan setoranmu."}
+              </p>
             </div>
 
-            <div className="welcome-actions">
-              <button
-                className="income-button"
-                onClick={() => openForm("transaction", "income")}
-              >
-                <ArrowDownLeft size={16} />
-                Catat pemasukan
-              </button>
+            {(activeTab === "dashboard" || activeTab === "transactions") && (
+              <div className="welcome-actions">
+                <button
+                  className="income-button"
+                  onClick={() => openForm("transaction", "income")}
+                >
+                  <ArrowDownLeft size={16} />
+                  Catat pemasukan
+                </button>
 
+                <button
+                  className="primary-button"
+                  onClick={() => openForm("transaction", "expense")}
+                >
+                  <Plus size={17} />
+                  Catat pengeluaran
+                </button>
+              </div>
+            )}
+
+            {activeTab === "budgets" && (
               <button
                 className="primary-button"
-                onClick={() => openForm("transaction", "expense")}
+                onClick={() => openForm("budget")}
               >
                 <Plus size={17} />
-                Catat pengeluaran
+                Tambah anggaran
               </button>
-            </div>
+            )}
+
+            {activeTab === "goals" && (
+              <button
+                className="primary-button"
+                onClick={() => openForm("goal")}
+              >
+                <Plus size={17} />
+                Buat pos tabungan
+              </button>
+            )}
           </div>
 
           {error && <p className="error-message">{error}</p>}
 
-          <div className="stat-grid">
+          <div
+            className={`stat-grid ${
+              activeTab !== "dashboard" ? "tab-hidden" : ""
+            }`}
+          >
             <article className="stat-card balance-card">
               <div className="stat-heading">Saldo bersih bulan ini</div>
               <div className="stat-value">{money(income - expense)}</div>
@@ -882,7 +909,7 @@ export default function HomePage() {
             </article>
           </div>
 
-          <div className="dashboard-grid">
+          <div className={`dashboard-grid active-${activeTab}`}>
             <section className="panel cashflow-panel">
               <div className="panel-heading">
                 <div>
@@ -956,7 +983,7 @@ export default function HomePage() {
               </div>
             </section>
 
-            <section className="panel budget-panel" id="budgets">
+            <section className="panel budget-panel">
               <div className="panel-heading">
                 <div>
                   <h2>Anggaran bulan ini</h2>
@@ -1065,7 +1092,7 @@ export default function HomePage() {
               </div>
             </section>
 
-            <section className="panel transactions-panel" id="transactions">
+            <section className="panel transactions-panel">
               <div className="panel-heading">
                 <div>
                   <h2>Transaksi</h2>
@@ -1133,7 +1160,7 @@ export default function HomePage() {
               </div>
             </section>
 
-            <section className="panel goals-panel" id="goals">
+            <section className="panel goals-panel">
               <div className="panel-heading">
                 <div>
                   <h2>Pos tabungan</h2>
@@ -1143,7 +1170,6 @@ export default function HomePage() {
                 <button
                   className="round-plus"
                   onClick={() => openForm("goal")}
-                  title="Tambah pos tabungan"
                 >
                   <Plus size={17} />
                 </button>
@@ -1266,7 +1292,11 @@ export default function HomePage() {
             </section>
           </div>
 
-          <section className="receipt-banner">
+          <section
+            className={`receipt-banner ${
+              activeTab !== "transactions" ? "tab-hidden" : ""
+            }`}
+          >
             <div className="receipt-art">
               <div className="art-circle">
                 <Camera size={25} />
@@ -1422,10 +1452,9 @@ export default function HomePage() {
                       value={category}
                       onChange={(event) => setCategory(event.target.value)}
                     >
-                      {(
-                        kind === "income"
-                          ? incomeCategories
-                          : expenseCategories
+                      {(kind === "income"
+                        ? incomeCategories
+                        : expenseCategories
                       ).map((item) => (
                         <option key={item}>{item}</option>
                       ))}
