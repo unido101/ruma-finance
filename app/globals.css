@@ -4,4 +4,195 @@
 .modal select{height:41px;border:1px solid #e5e9e3;border-radius:7px;padding:0 11px;background:white;outline:none;font-size:11px;color:#455147}
 
 .auth-card{width:min(100% - 32px,440px);margin:10vh auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:30px;box-shadow:0 15px 55px #263b2d12}.auth-card .brand{margin:0 0 28px}.auth-card h1{font:700 24px Manrope,sans-serif;margin:0 0 8px}.auth-card>p{color:#879187;font-size:12px;line-height:1.6;margin:0 0 22px}.auth-card form{display:grid;gap:14px}.auth-card label{display:grid;gap:7px;font-size:11px;color:#647066}.auth-card input{height:42px;border:1px solid #e5e9e3;border-radius:7px;padding:0 11px;font:inherit}.auth-card .primary-button{width:100%;margin-top:5px}.auth-switch{border:0;background:none;color:#66806b;font-size:11px;margin-top:17px;padding:0}.error-message{color:#b4533f;font-size:11px;line-height:1.5}.loading-note{position:fixed;bottom:10px;right:15px;background:white;border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:#7b867c;font-size:10px;z-index:4}.profile>button{margin-left:auto;border:0;background:none;color:#818a82}.budget-ring{background:conic-gradient(#758c78 0 0%,#edf1eb 0 100%)}
-.welcome-actions{display:flex;gap:8px;align-items:center}.income-button{height:39px;padding:0 13px;border:1px solid #dce7dc;border-radius:8px;background:#f4f8f3;color:#5e7a63;display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:11px;font-weight:600}.income-button:hover{background:#eaf2e9}.row-actions{display:inline-flex;align-items:center;gap:3px;margin-left:auto;flex-shrink:0}.row-actions button{height:25px;width:25px;border:0;border-radius:6px;background:transparent;color:#929b91;display:grid;place-items:center;padding:0}.row-actions button:hover{background:#f0f3ef;color:#526a57}.row-actions button:last-child:hover{background:#fbefea;color:#bd6c55}.budget-label .row-actions{margin-left:4px}.transaction-row .row-actions{margin-left:3px}.goal-top .row-actions{margin-left:5px}.goal-row{padding-bottom:9px;border-bottom:1px solid #f0f2ef}.contribution-list{margin-top:8px;display:grid;gap:4px}.contribution-row{display:flex;align-items:center;gap:6px;padding:4px 0;color:#747e75}.contribution-row small{font-size:8px}.contribution-row>b{font-size:9px;margin-left:auto}.contribution-row .row-actions{margin-left:1px}.goal-action{cursor:pointer}.kind-switch{display:grid;grid-template-columns:1fr 1fr;gap:7px}.kind-switch button{height:37px;border:1px solid #e5e9e3;border-radius:7px;background:#fff;color:#7c877d;display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px}.kind-switch button.selected{border-color:#9ab09b;background:#edf4ed;color:#54735a;font-weight:700}.modal form select{height:41px;border:1px solid #e5e9e3;border-radius:7px;padding:0 11px;background:white;outline:none;font-size:11px;color:#455147}.transaction-row{gap:7px}.budget-label{gap:5px}@media(max-width:700px){.welcome-actions{display:grid;gap:5px}.welcome-actions button{height:34px;padding:0 8px;font-size:9px}.transaction-row{gap:5px}.transaction-name{flex:1}.row-actions button{width:22px;height:24px}}
+/* Tombol pemasukan dan pengeluaran */
+.welcome-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.income-button {
+  height: 39px;
+  padding: 0 13px;
+  border: 1px solid #dce7dc;
+  border-radius: 8px;
+  background: #f4f8f3;
+  color: #5e7a63;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.income-button:hover {
+  background: #eaf2e9;
+}
+
+/* Tombol edit dan hapus */
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.row-actions button {
+  width: 25px;
+  height: 25px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #929b91;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+
+.row-actions button:hover {
+  background: #f0f3ef;
+  color: #526a57;
+}
+
+.row-actions button:last-child:hover {
+  background: #fbefea;
+  color: #bd6c55;
+}
+
+.transaction-row .row-actions {
+  margin-left: 3px;
+}
+
+.budget-label .row-actions {
+  margin-left: 4px;
+}
+
+.goal-top .row-actions {
+  margin-left: 5px;
+}
+
+/* Tampilan pos tabungan dan setoran */
+.goal-row {
+  padding-bottom: 9px;
+  border-bottom: 1px solid #f0f2ef;
+}
+
+.contribution-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.contribution-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  color: #747e75;
+}
+
+.contribution-row small {
+  font-size: 8px;
+}
+
+.contribution-row b {
+  margin-left: auto;
+  font-size: 9px;
+}
+
+.contribution-row .row-actions {
+  margin-left: 1px;
+}
+
+.goal-action {
+  cursor: pointer;
+}
+
+/* Pilihan pemasukan atau pengeluaran dalam modal */
+.kind-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.kind-switch button {
+  height: 37px;
+  border: 1px solid #e5e9e3;
+  border-radius: 7px;
+  background: #fff;
+  color: #7c877d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 10px;
+}
+
+.kind-switch button.selected {
+  border-color: #9ab09b;
+  background: #edf4ed;
+  color: #54735a;
+  font-weight: 700;
+}
+
+/* Select input pada modal */
+.modal form select {
+  height: 41px;
+  border: 1px solid #e5e9e3;
+  border-radius: 7px;
+  background: #fff;
+  color: #455147;
+  padding: 0 11px;
+  outline: none;
+  font-size: 11px;
+}
+
+.modal form select:focus {
+  border-color: #859a87;
+  box-shadow: 0 0 0 3px #859a871c;
+}
+
+/* Perapian layout */
+.transaction-row {
+  gap: 7px;
+}
+
+.transaction-name {
+  flex: 1;
+}
+
+.budget-label {
+  gap: 5px;
+}
+
+.profile > button {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: #818a82;
+}
+
+/* Tampilan mobile */
+@media (max-width: 700px) {
+  .welcome-actions {
+    display: grid;
+    gap: 5px;
+  }
+
+  .welcome-actions button {
+    height: 34px;
+    padding: 0 8px;
+    font-size: 9px;
+  }
+
+  .transaction-row {
+    gap: 5px;
+  }
+
+  .row-actions button {
+    width: 22px;
+    height: 24px;
+  }
+}
