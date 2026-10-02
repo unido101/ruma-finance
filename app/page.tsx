@@ -405,10 +405,10 @@ export default function HomePage() {
 
     if (modal === "budget") {
       const fields = {
-        category,
-        limit_amount: numberAmount,
-        color: "#78907b",
-      };
+  category: category.trim(),
+  limit_amount: numberAmount,
+  color: "#78907b",
+};
 
       result = editingId
         ? await supabase
@@ -1262,26 +1262,25 @@ export default function HomePage() {
                 </>
               )}
 
-              {modal === "budget" && (
-                <label>
-                  Kategori anggaran
+             {modal === "budget" && (
+  <label>
+    Kategori anggaran
 
-                  <select
-                    value={category}
-                    onChange={(event) => setCategory(event.target.value)}
-                  >
-                    {!expenseCategories.includes(category) && (
-                      <option value={category}>{category}</option>
-                    )}
+    <input
+      list="budget-category-options"
+      value={category}
+      onChange={(event) => setCategory(event.target.value)}
+      placeholder="Pilih atau ketik kategori baru"
+      required
+    />
 
-                    {expenseCategories.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
+    <datalist id="budget-category-options">
+      {expenseCategories.map((item) => (
+        <option key={item} value={item} />
+      ))}
+    </datalist>
+  </label>
+)}
 
               {modal === "goal" && (
                 <>
