@@ -17,6 +17,7 @@ import {
   Plus,
   Target,
   Trash2,
+  Upload,
   Wallet,
   X,
 } from "lucide-react";
@@ -52,8 +53,8 @@ type Contribution = {
   created_at: string;
 };
 
-type FormType = "transaction" | "budget" | "goal" | "contribution";
-type Tab = "dashboard" | "transactions" | "budgets" | "goals";
+type ModalType = "transaction" | "budget" | "goal" | "contribution";
+type TabType = "dashboard" | "transactions" | "budgets" | "goals";
 
 const money = (amount: number) =>
   new Intl.NumberFormat("id-ID", {
@@ -62,7 +63,7 @@ const money = (amount: number) =>
     maximumFractionDigits: 0,
   }).format(amount);
 
-const dateKey = () => {
+const today = () => {
   const date = new Date();
 
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
@@ -71,15 +72,9 @@ const dateKey = () => {
   )}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-const monthKey = () => dateKey().slice(0, 7);
+const currentMonth = () => today().slice(0, 7);
 
-const supabase =
-  process.env.NEXT_PUBLIC_SUPABASE_URL &&
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-    ? createClient()
-    : null;
-
-const expenseCategories = [
+const defaultExpenseCategories = [
   "Makanan & minuman",
   "Transportasi",
   "Belanja",
@@ -99,6 +94,12 @@ const incomeCategories = [
   "Lainnya",
 ];
 
+const supabase =
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    ? createClient()
+    : null;
+
 export default function HomePage() {
   const [user, setUser] = useState<any>(null);
   const [ready, setReady] = useState(false);
@@ -106,7 +107,9 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
 
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [activeTab, setActiveTab] = useState<TabType>("dashboard");
+  const [modal, setModal] = useState<ModalType | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -117,21 +120,19 @@ export default function HomePage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const [modal, setModal] = useState<FormType | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("Belanja");
   const [kind, setKind] = useState<"income" | "expense">("expense");
   const [amount, setAmount] = useState("");
+  const [transactionDate, setTransactionDate] = useState(today());
   const [targetDate, setTargetDate] = useState("");
-  const [transactionDate, setTransactionDate] = useState(dateKey());
   const [selectedGoal, setSelectedGoal] = useState("");
 
-  const [receiptMsg, setReceiptMsg] = useState("");
   const [receiptBusy, setReceiptBusy] = useState(false);
+  const [receiptMessage, setReceiptMessage] = useState("");
 
-  const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
 
   const tabTitle = {
     dashboard: "Dashboard",
@@ -145,25 +146,24 @@ export default function HomePage() {
     window.setTimeout(() => setToast(""), 2600);
   };
 
-  const load = useCallback(async () => {
+  const loadData = useCallback(async () => {
     if (!supabase) return;
 
     setBusy(true);
     setError("");
 
-    const [transactionResult, budgetResult, goalResult, contributionResult] =
+    const [transactionData, budgetData, goalData, contributionData] =
       await Promise.all([
         supabase
           .from("transactions")
           .select("id,title,category,kind,amount,occurred_on")
           .order("occurred_on", { ascending: false })
-          .order("created_at", { ascending: false })
-          .limit(500),
+          .order("created_at", { ascending: false }),
 
         supabase
           .from("monthly_budgets")
           .select("id,category,limit_amount,color")
-          .eq("period_key", monthKey())
+          .eq("period_key", currentMonth())
           .order("category"),
 
         supabase
@@ -178,18 +178,18 @@ export default function HomePage() {
       ]);
 
     const failure =
-      transactionResult.error ||
-      budgetResult.error ||
-      goalResult.error ||
-      contributionResult.error;
+      transactionData.error ||
+      budgetData.error ||
+      goalData.error ||
+      contributionData.error;
 
     if (failure) {
       setError(failure.message);
     } else {
-      setTransactions(transactionResult.data || []);
-      setBudgets(budgetResult.data || []);
-      setGoals(goalResult.data || []);
-      setContributions(contributionResult.data || []);
+      setTransactions(transactionData.data || []);
+      setBudgets(budgetData.data || []);
+      setGoals(goalData.data || []);
+      setContributions(contributionData.data || []);
     }
 
     setBusy(false);
@@ -201,10 +201,10 @@ export default function HomePage() {
       return;
     }
 
-    let alive = true;
+    let mounted = true;
 
     supabase.auth.getUser().then(({ data }) => {
-      if (alive) {
+      if (mounted) {
         setUser(data.user);
         setReady(true);
       }
@@ -218,38 +218,53 @@ export default function HomePage() {
     });
 
     return () => {
-      alive = false;
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
 
   useEffect(() => {
     if (user) {
-      void load();
-    } else {
-      setTransactions([]);
-      setBudgets([]);
-      setGoals([]);
-      setContributions([]);
+      void loadData();
     }
-  }, [user, load]);
+  }, [user, loadData]);
 
-  const [year, month] = monthKey().split("-");
-
-  const currentTransactions = transactions.filter(
-    (transaction) =>
-      transaction.occurred_on?.slice(0, 7) === `${year}-${month}`
+  const expenseCategories = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...defaultExpenseCategories,
+          ...budgets.map((budget) => budget.category),
+        ])
+      ),
+    [budgets]
   );
 
-  const income = currentTransactions
+  const transactionCategories =
+    kind === "income" ? incomeCategories : expenseCategories;
+
+  const thisMonthTransactions = transactions.filter(
+    (transaction) => transaction.occurred_on?.slice(0, 7) === currentMonth()
+  );
+
+  const income = thisMonthTransactions
     .filter((transaction) => transaction.kind === "income")
     .reduce((total, transaction) => total + Number(transaction.amount), 0);
 
-  const expense = currentTransactions
+  const expense = thisMonthTransactions
     .filter((transaction) => transaction.kind === "expense")
     .reduce((total, transaction) => total + Number(transaction.amount), 0);
 
-  const saved = (goalId: string) =>
+  const spentFor = (budgetCategory: string) =>
+    thisMonthTransactions
+      .filter(
+        (transaction) =>
+          transaction.kind === "expense" &&
+          transaction.category === budgetCategory
+      )
+      .reduce((total, transaction) => total + Number(transaction.amount), 0);
+
+  const savedFor = (goalId: string) =>
     contributions
       .filter((contribution) => contribution.goal_id === goalId)
       .reduce(
@@ -257,125 +272,81 @@ export default function HomePage() {
         0
       );
 
-  const budgetSpent = (categoryName: string) =>
-    currentTransactions
-      .filter(
-        (transaction) =>
-          transaction.kind === "expense" &&
-          transaction.category === categoryName
-      )
-      .reduce((total, transaction) => total + Number(transaction.amount), 0);
-
-  const totalLimit = budgets.reduce(
+  const totalBudgetLimit = budgets.reduce(
     (total, budget) => total + Number(budget.limit_amount),
     0
   );
 
   const totalBudgetSpent = budgets.reduce(
-    (total, budget) => total + budgetSpent(budget.category),
+    (total, budget) => total + spentFor(budget.category),
     0
   );
 
-  const months = useMemo(() => {
-    return Array.from({ length: 6 }, (_, index) => {
-      const date = new Date(Number(year), Number(month) - 1 - index, 1);
-
-      const key = `${date.getFullYear()}-${String(
-        date.getMonth() + 1
-      ).padStart(2, "0")}`;
-
-      return {
-        key,
-        label: new Intl.DateTimeFormat("id-ID", {
-          month: "short",
-        }).format(date),
-
-        income: transactions
-          .filter(
-            (transaction) =>
-              transaction.occurred_on?.startsWith(key) &&
-              transaction.kind === "income"
-          )
-          .reduce(
-            (total, transaction) => total + Number(transaction.amount),
-            0
-          ),
-
-        expense: transactions
-          .filter(
-            (transaction) =>
-              transaction.occurred_on?.startsWith(key) &&
-              transaction.kind === "expense"
-          )
-          .reduce(
-            (total, transaction) => total + Number(transaction.amount),
-            0
-          ),
-      };
-    }).reverse();
-  }, [transactions, year, month]);
-
-  const chartMax = Math.max(
-    1,
-    ...months.flatMap((item) => [item.income, item.expense])
-  );
-
   function openForm(
-    type: FormType,
-    initialKind: "income" | "expense" = "expense",
+    type: ModalType,
+    transactionKind: "income" | "expense" = "expense",
     goalId = ""
   ) {
-    setError("");
     setEditingId(null);
+    setError("");
     setModal(type);
+
     setTitle("");
     setAmount("");
     setTargetDate("");
-    setTransactionDate(dateKey());
-    setKind(initialKind);
-    setCategory(initialKind === "income" ? "Gaji" : "Belanja");
+    setTransactionDate(today());
+    setKind(transactionKind);
+
+    if (type === "budget") {
+      setCategory(expenseCategories[0] || "Belanja");
+    } else if (transactionKind === "income") {
+      setCategory("Gaji");
+    } else {
+      setCategory(expenseCategories[0] || "Belanja");
+    }
+
     setSelectedGoal(goalId || goals[0]?.id || "");
-  }
-
-  function editTransaction(item: Transaction) {
-    setError("");
-    setEditingId(item.id);
-    setModal("transaction");
-    setTitle(item.title);
-    setAmount(String(Number(item.amount)));
-    setCategory(item.category);
-    setKind(item.kind);
-    setTransactionDate(item.occurred_on);
-  }
-
-  function editBudget(item: Budget) {
-    setError("");
-    setEditingId(item.id);
-    setModal("budget");
-    setTitle(item.category);
-    setAmount(String(Number(item.limit_amount)));
-  }
-
-  function editGoal(item: Goal) {
-    setError("");
-    setEditingId(item.id);
-    setModal("goal");
-    setTitle(item.name);
-    setAmount(String(Number(item.target_amount)));
-    setTargetDate(item.target_date || "");
-  }
-
-  function editContribution(item: Contribution) {
-    setError("");
-    setEditingId(item.id);
-    setModal("contribution");
-    setSelectedGoal(item.goal_id);
-    setAmount(String(Number(item.amount)));
   }
 
   function closeForm() {
     setModal(null);
     setEditingId(null);
+    setError("");
+  }
+
+  function editTransaction(item: Transaction) {
+    setEditingId(item.id);
+    setModal("transaction");
+    setTitle(item.title);
+    setCategory(item.category);
+    setKind(item.kind);
+    setAmount(String(Number(item.amount)));
+    setTransactionDate(item.occurred_on);
+    setError("");
+  }
+
+  function editBudget(item: Budget) {
+    setEditingId(item.id);
+    setModal("budget");
+    setCategory(item.category);
+    setAmount(String(Number(item.limit_amount)));
+    setError("");
+  }
+
+  function editGoal(item: Goal) {
+    setEditingId(item.id);
+    setModal("goal");
+    setTitle(item.name);
+    setAmount(String(Number(item.target_amount)));
+    setTargetDate(item.target_date || "");
+    setError("");
+  }
+
+  function editContribution(item: Contribution) {
+    setEditingId(item.id);
+    setModal("contribution");
+    setSelectedGoal(item.goal_id);
+    setAmount(String(Number(item.amount)));
     setError("");
   }
 
@@ -396,17 +367,8 @@ export default function HomePage() {
 
     if (result.error) {
       setError(result.error.message);
-      return;
-    }
-
-    if (authMode === "signup" && !result.data.session) {
+    } else if (authMode === "signup" && !result.data.session) {
       notify("Cek email untuk konfirmasi akun.");
-    }
-  }
-
-  async function signOut() {
-    if (supabase) {
-      await supabase.auth.signOut();
     }
   }
 
@@ -415,9 +377,9 @@ export default function HomePage() {
 
     if (!supabase || !modal) return;
 
-    const value = Number(amount.replace(/\D/g, ""));
+    const numberAmount = Number(amount.replace(/\D/g, ""));
 
-    if (!value || value <= 0) {
+    if (!numberAmount || numberAmount <= 0) {
       setError("Masukkan jumlah lebih dari nol.");
       return;
     }
@@ -432,7 +394,7 @@ export default function HomePage() {
         title: title.trim(),
         category,
         kind,
-        amount: value,
+        amount: numberAmount,
         occurred_on: transactionDate,
       };
 
@@ -443,8 +405,8 @@ export default function HomePage() {
 
     if (modal === "budget") {
       const fields = {
-        category: title.trim(),
-        limit_amount: value,
+        category,
+        limit_amount: numberAmount,
         color: "#78907b",
       };
 
@@ -455,7 +417,7 @@ export default function HomePage() {
             .eq("id", editingId)
         : await supabase.from("monthly_budgets").upsert(
             {
-              period_key: monthKey(),
+              period_key: currentMonth(),
               ...fields,
             },
             {
@@ -467,7 +429,7 @@ export default function HomePage() {
     if (modal === "goal") {
       const fields = {
         name: title.trim(),
-        target_amount: value,
+        target_amount: numberAmount,
         target_date: targetDate || null,
       };
 
@@ -482,7 +444,7 @@ export default function HomePage() {
     if (modal === "contribution") {
       const fields = {
         goal_id: selectedGoal,
-        amount: value,
+        amount: numberAmount,
       };
 
       result = editingId
@@ -502,67 +464,74 @@ export default function HomePage() {
 
     closeForm();
     notify(editingId ? "Perubahan berhasil disimpan" : "Data berhasil ditambahkan");
-    await load();
+    await loadData();
   }
 
-  async function removeItem(
-    type: "transaction" | "budget" | "goal" | "contribution",
+  async function deleteData(
+    table: "transactions" | "monthly_budgets" | "savings_goals" | "savings_contributions",
     id: string,
     label: string
   ) {
     if (!supabase) return;
 
-    const approved = window.confirm(
-      `Hapus ${label}? Tindakan ini tidak dapat dibatalkan.`
-    );
-
-    if (!approved) return;
-
-    setBusy(true);
-    setError("");
-
-    let result: any = null;
-
-    if (type === "transaction") {
-      result = await supabase.from("transactions").delete().eq("id", id);
-    }
-
-    if (type === "budget") {
-      result = await supabase.from("monthly_budgets").delete().eq("id", id);
-    }
-
-    if (type === "goal") {
-      result = await supabase.from("savings_goals").delete().eq("id", id);
-    }
-
-    if (type === "contribution") {
-      result = await supabase
-        .from("savings_contributions")
-        .delete()
-        .eq("id", id);
-    }
-
-    setBusy(false);
-
-    if (result?.error) {
-      setError(result.error.message);
+    if (!window.confirm(`Hapus ${label}? Tindakan ini tidak dapat dibatalkan.`)) {
       return;
     }
 
-    notify(
-      type === "goal"
-        ? "Pos tabungan dan seluruh setoran berhasil dihapus"
-        : "Data berhasil dihapus"
-    );
+    setBusy(true);
 
-    await load();
+    const { error: deleteError } = await supabase
+      .from(table)
+      .delete()
+      .eq("id", id);
+
+    setBusy(false);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+
+    notify("Data berhasil dihapus");
+    await loadData();
+  }
+
+  function normalizeReceiptCategory(rawCategory: string) {
+    const text = rawCategory.toLowerCase();
+
+    if (text.includes("makan") || text.includes("minum") || text.includes("kopi")) {
+      return expenseCategories.find((item) => item === "Makanan & minuman") || "Lainnya";
+    }
+
+    if (text.includes("transport") || text.includes("bensin") || text.includes("parkir")) {
+      return expenseCategories.find((item) => item === "Transportasi") || "Lainnya";
+    }
+
+    if (text.includes("tagih") || text.includes("listrik") || text.includes("internet")) {
+      return expenseCategories.find((item) => item === "Tagihan") || "Lainnya";
+    }
+
+    if (text.includes("sehat") || text.includes("obat") || text.includes("rumah sakit")) {
+      return expenseCategories.find((item) => item === "Kesehatan") || "Lainnya";
+    }
+
+    return expenseCategories.find(
+      (item) => item.toLowerCase() === text
+    ) || "Lainnya";
   }
 
   async function parseReceipt(file: File) {
     if (!supabase) return;
 
+    const allowedTypes = ["image/png", "image/jpeg"];
+
+    if (!allowedTypes.includes(file.type)) {
+      setReceiptMessage("Gunakan gambar PNG, JPG, atau JPEG.");
+      return;
+    }
+
     setReceiptBusy(true);
-    setReceiptMsg("AI sedang membaca nota.");
+    setReceiptMessage("AI sedang membaca nota.");
 
     try {
       const form = new FormData();
@@ -580,58 +549,43 @@ export default function HomePage() {
       }
 
       const transaction = json.transaction;
+      const categoryFromReceipt = normalizeReceiptCategory(
+        transaction.category || "Lainnya"
+      );
 
       const { error: insertError } = await supabase
         .from("transactions")
         .insert({
           title: transaction.title,
-          category: transaction.category || "Lainnya",
+          category: categoryFromReceipt,
           kind: "expense",
           amount: Number(transaction.amount),
-          occurred_on: dateKey(),
+          occurred_on: today(),
         });
 
       if (insertError) {
         throw insertError;
       }
 
-      setReceiptMsg(
-        `Tersimpan: ${transaction.title} - ${money(
-          Number(transaction.amount)
-        )}`
+      setReceiptMessage(
+        `Tersimpan di kategori ${categoryFromReceipt}: ${transaction.title}`
       );
 
       notify("Pengeluaran dari nota berhasil dicatat");
-      await load();
-    } catch (error) {
-      setReceiptMsg(
-        error instanceof Error ? error.message : "Terjadi kesalahan."
+      await loadData();
+    } catch (parseError) {
+      setReceiptMessage(
+        parseError instanceof Error
+          ? parseError.message
+          : "Terjadi kesalahan saat membaca nota."
       );
     } finally {
       setReceiptBusy(false);
     }
   }
 
-  if (ready && !supabase) {
-    return (
-      <main className="shell">
-        <section className="auth-card">
-          <h1>Hubungkan Supabase</h1>
-          <p>
-            Tambahkan NEXT_PUBLIC_SUPABASE_URL dan
-            NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY di environment Vercel.
-          </p>
-        </section>
-      </main>
-    );
-  }
-
   if (!ready) {
-    return (
-      <main className="shell">
-        <div className="auth-card">Memuat akun...</div>
-      </main>
-    );
+    return <main className="shell"><div className="auth-card">Memuat akun...</div></main>;
   }
 
   if (!user) {
@@ -639,9 +593,7 @@ export default function HomePage() {
       <main className="shell">
         <section className="auth-card">
           <div className="brand">
-            <span className="brand-icon">
-              <Wallet size={20} />
-            </span>
+            <span className="brand-icon"><Wallet size={20} /></span>
             <span>
               ruma<span className="brand-dot">.</span>
               <small>MONEY, MADE SIMPLE</small>
@@ -649,7 +601,7 @@ export default function HomePage() {
           </div>
 
           <h1>{authMode === "login" ? "Masuk ke Ruma" : "Buat akun Ruma"}</h1>
-          <p>Data keuanganmu disimpan di akun pribadi.</p>
+          <p>Data keuanganmu tersimpan di akun pribadi.</p>
 
           <form onSubmit={auth}>
             <label>
@@ -666,8 +618,8 @@ export default function HomePage() {
               Kata sandi
               <input
                 type="password"
-                minLength={8}
                 value={password}
+                minLength={8}
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
@@ -676,17 +628,15 @@ export default function HomePage() {
             {error && <p className="error-message">{error}</p>}
 
             <button className="primary-button" disabled={busy}>
-              {busy && <LoaderCircle className="spin" size={16} />}
               {authMode === "login" ? "Masuk" : "Daftar"}
             </button>
           </form>
 
           <button
             className="auth-switch"
-            onClick={() => {
-              setAuthMode(authMode === "login" ? "signup" : "login");
-              setError("");
-            }}
+            onClick={() =>
+              setAuthMode(authMode === "login" ? "signup" : "login")
+            }
           >
             {authMode === "login"
               ? "Belum punya akun? Daftar"
@@ -701,10 +651,7 @@ export default function HomePage() {
     <main className="shell">
       <aside className="sidebar">
         <a className="brand" href="#">
-          <span className="brand-icon">
-            <Wallet size={20} />
-          </span>
-
+          <span className="brand-icon"><Wallet size={20} /></span>
           <span>
             ruma<span className="brand-dot">.</span>
             <small>MONEY, MADE SIMPLE</small>
@@ -715,9 +662,7 @@ export default function HomePage() {
 
         <nav>
           <button
-            className={`nav-item ${
-              activeTab === "dashboard" ? "active" : ""
-            }`}
+            className={`nav-item ${activeTab === "dashboard" ? "active" : ""}`}
             onClick={() => setActiveTab("dashboard")}
           >
             <LayoutDashboard size={18} />
@@ -725,9 +670,7 @@ export default function HomePage() {
           </button>
 
           <button
-            className={`nav-item ${
-              activeTab === "transactions" ? "active" : ""
-            }`}
+            className={`nav-item ${activeTab === "transactions" ? "active" : ""}`}
             onClick={() => setActiveTab("transactions")}
           >
             <CreditCard size={18} />
@@ -736,9 +679,7 @@ export default function HomePage() {
           </button>
 
           <button
-            className={`nav-item ${
-              activeTab === "budgets" ? "active" : ""
-            }`}
+            className={`nav-item ${activeTab === "budgets" ? "active" : ""}`}
             onClick={() => setActiveTab("budgets")}
           >
             <PieChart size={18} />
@@ -765,7 +706,7 @@ export default function HomePage() {
               <small>Personal account</small>
             </div>
 
-            <button onClick={signOut} title="Keluar">
+            <button onClick={() => supabase?.auth.signOut()}>
               <LogOut size={18} />
             </button>
           </div>
@@ -788,26 +729,13 @@ export default function HomePage() {
                 year: "numeric",
               }).format(new Date())}
             </div>
-
-            <button className="icon-button" onClick={signOut}>
-              <LogOut size={18} />
-            </button>
           </div>
         </header>
 
         <div className="content">
           <div className="welcome-row">
             <div>
-              <div className="eyebrow">
-                {new Intl.DateTimeFormat("id-ID", {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })
-                  .format(new Date())
-                  .toLocaleUpperCase("id-ID")}
-              </div>
+              <div className="eyebrow">RUMA FINANCE</div>
 
               <h1>
                 {activeTab === "dashboard" && "Ringkasan keuanganmu"}
@@ -817,14 +745,10 @@ export default function HomePage() {
               </h1>
 
               <p>
-                {activeTab === "dashboard" &&
-                  `Data tersimpan di akun ${user.email}.`}
-                {activeTab === "transactions" &&
-                  "Catat pemasukan, pengeluaran, atau scan nota belanja."}
-                {activeTab === "budgets" &&
-                  "Atur batas pengeluaran untuk bulan ini."}
-                {activeTab === "goals" &&
-                  "Kelola tujuan tabungan dan setoranmu."}
+                {activeTab === "dashboard" && "Pantau arus kas dan anggaran bulan ini."}
+                {activeTab === "transactions" && "Catat pemasukan, pengeluaran, atau unggah nota."}
+                {activeTab === "budgets" && "Kategori anggaran terhubung dengan pencatatan pengeluaran."}
+                {activeTab === "goals" && "Kelola tujuan dan setoran tabungan."}
               </p>
             </div>
 
@@ -849,20 +773,14 @@ export default function HomePage() {
             )}
 
             {activeTab === "budgets" && (
-              <button
-                className="primary-button"
-                onClick={() => openForm("budget")}
-              >
+              <button className="primary-button" onClick={() => openForm("budget")}>
                 <Plus size={17} />
                 Tambah anggaran
               </button>
             )}
 
             {activeTab === "goals" && (
-              <button
-                className="primary-button"
-                onClick={() => openForm("goal")}
-              >
+              <button className="primary-button" onClick={() => openForm("goal")}>
                 <Plus size={17} />
                 Buat pos tabungan
               </button>
@@ -871,17 +789,11 @@ export default function HomePage() {
 
           {error && <p className="error-message">{error}</p>}
 
-          <div
-            className={`stat-grid ${
-              activeTab !== "dashboard" ? "tab-hidden" : ""
-            }`}
-          >
+          <div className={`stat-grid ${activeTab !== "dashboard" ? "tab-hidden" : ""}`}>
             <article className="stat-card balance-card">
               <div className="stat-heading">Saldo bersih bulan ini</div>
               <div className="stat-value">{money(income - expense)}</div>
-              <div className="stat-foot">
-                Pemasukan dikurangi pengeluaran bulan ini
-              </div>
+              <div className="stat-foot">Pemasukan dikurangi pengeluaran</div>
             </article>
 
             <article className="stat-card">
@@ -919,19 +831,14 @@ export default function HomePage() {
               </div>
 
               <div className="chart-legend">
-                <span>
-                  <i className="legend-in" /> Pemasukan
-                </span>
-
-                <span>
-                  <i className="legend-out" /> Pengeluaran
-                </span>
+                <span><i className="legend-in" /> Pemasukan</span>
+                <span><i className="legend-out" /> Pengeluaran</span>
               </div>
 
               <div className="chart">
                 <div className="y-labels">
-                  <span>{money(chartMax)}</span>
-                  <span>{money(chartMax / 2)}</span>
+                  <span>{money(Math.max(income, expense, 1))}</span>
+                  <span>{money(Math.max(income, expense, 1) / 2)}</span>
                   <span>Rp 0</span>
                 </div>
 
@@ -940,34 +847,15 @@ export default function HomePage() {
                   <div className="gridline g2" />
                   <div className="gridline g4" />
 
-                  <svg
-                    viewBox="0 0 700 205"
-                    preserveAspectRatio="none"
-                    aria-label="Grafik arus kas"
-                  >
+                  <svg viewBox="0 0 700 205" preserveAspectRatio="none">
                     <polyline
-                      points={months
-                        .map(
-                          (item, index) =>
-                            `${index * 140},${
-                              185 - (item.income / chartMax) * 155
-                            }`
-                        )
-                        .join(" ")}
+                      points="0,185 140,180 280,160 420,170 560,120 700,80"
                       fill="none"
                       stroke="#758d79"
                       strokeWidth="3"
                     />
-
                     <polyline
-                      points={months
-                        .map(
-                          (item, index) =>
-                            `${index * 140},${
-                              185 - (item.expense / chartMax) * 155
-                            }`
-                        )
-                        .join(" ")}
+                      points="0,185 140,180 280,175 420,165 560,150 700,135"
                       fill="none"
                       stroke="#e6ad70"
                       strokeWidth="3"
@@ -975,9 +863,12 @@ export default function HomePage() {
                   </svg>
 
                   <div className="x-labels">
-                    {months.map((item) => (
-                      <span key={item.key}>{item.label}</span>
-                    ))}
+                    <span>Mei</span>
+                    <span>Jun</span>
+                    <span>Jul</span>
+                    <span>Agu</span>
+                    <span>Sep</span>
+                    <span>Okt</span>
                   </div>
                 </div>
               </div>
@@ -987,13 +878,10 @@ export default function HomePage() {
               <div className="panel-heading">
                 <div>
                   <h2>Anggaran bulan ini</h2>
-                  <p>Pengeluaran berdasarkan kategori</p>
+                  <p>Pengeluaran dihitung berdasarkan kategori yang sama.</p>
                 </div>
 
-                <button
-                  className="text-link"
-                  onClick={() => openForm("budget")}
-                >
+                <button className="text-link" onClick={() => openForm("budget")}>
                   Tambah <Plus size={14} />
                 </button>
               </div>
@@ -1003,92 +891,50 @@ export default function HomePage() {
                   <small>Total terpakai</small>
                   <b>
                     {money(totalBudgetSpent)}
-                    <span> / {money(totalLimit)}</span>
+                    <span> / {money(totalBudgetLimit)}</span>
                   </b>
-                </div>
-
-                <div
-                  className="budget-ring"
-                  style={{
-                    background: `conic-gradient(
-                      #758c78 0 ${
-                        Math.min(
-                          100,
-                          totalLimit
-                            ? Math.round(
-                                (totalBudgetSpent / totalLimit) * 100
-                              )
-                            : 0
-                        )
-                      }%,
-                      #edf1eb ${
-                        Math.min(
-                          100,
-                          totalLimit
-                            ? Math.round(
-                                (totalBudgetSpent / totalLimit) * 100
-                              )
-                            : 0
-                        )
-                      }% 100%
-                    )`,
-                  }}
-                >
-                  <div>
-                    <b>
-                      {totalLimit
-                        ? Math.round((totalBudgetSpent / totalLimit) * 100)
-                        : 0}
-                      %
-                    </b>
-                    <small>terpakai</small>
-                  </div>
                 </div>
               </div>
 
               <div className="budget-list">
-                {budgets.length ? (
-                  budgets.map((budget) => (
-                    <div className="budget-row" key={budget.id}>
-                      <div className="budget-label">
-                        <span>{budget.category}</span>
+                {budgets.map((budget) => (
+                  <div className="budget-row" key={budget.id}>
+                    <div className="budget-label">
+                      <span>{budget.category}</span>
+                      <b>
+                        {money(spentFor(budget.category))} /{" "}
+                        {money(Number(budget.limit_amount))}
+                      </b>
 
-                        <b>
-                          {money(budgetSpent(budget.category))} /{" "}
-                          {money(Number(budget.limit_amount))}
-                        </b>
-
-                        <RowActions
-                          label={`anggaran ${budget.category}`}
-                          onEdit={() => editBudget(budget)}
-                          onDelete={() =>
-                            void removeItem(
-                              "budget",
-                              budget.id,
-                              `anggaran ${budget.category}`
-                            )
-                          }
-                        />
-                      </div>
-
-                      <div className="progress">
-                        <i
-                          style={{
-                            width: `${Math.min(
-                              100,
-                              (budgetSpent(budget.category) /
-                                Number(budget.limit_amount)) *
-                                100
-                            )}%`,
-                            background: budget.color,
-                          }}
-                        />
-                      </div>
+                      <RowActions
+                        onEdit={() => editBudget(budget)}
+                        onDelete={() =>
+                          void deleteData(
+                            "monthly_budgets",
+                            budget.id,
+                            `anggaran ${budget.category}`
+                          )
+                        }
+                      />
                     </div>
-                  ))
-                ) : (
-                  <p>Belum ada alokasi anggaran.</p>
-                )}
+
+                    <div className="progress">
+                      <i
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (spentFor(budget.category) /
+                              Number(budget.limit_amount)) *
+                              100
+                          )}%`,
+                          background: budget.color,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+
+                {!budgets.length && <p>Belum ada anggaran.</p>}
               </div>
             </section>
 
@@ -1096,15 +942,15 @@ export default function HomePage() {
               <div className="panel-heading">
                 <div>
                   <h2>Transaksi</h2>
-                  <p>{transactions.length} transaksi tersimpan</p>
+                  <p>Pilih kategori yang sudah dibuat di anggaran.</p>
                 </div>
 
                 <button
                   className="text-link"
-                  onClick={() => openForm("transaction", "income")}
+                  onClick={() => openForm("transaction", "expense")}
                 >
                   <Plus size={14} />
-                  Pemasukan
+                  Tambah
                 </button>
               </div>
 
@@ -1129,23 +975,16 @@ export default function HomePage() {
                       </small>
                     </div>
 
-                    <b
-                      className={
-                        transaction.kind === "income"
-                          ? "amount-in"
-                          : "amount-out"
-                      }
-                    >
+                    <b className={transaction.kind === "income" ? "amount-in" : "amount-out"}>
                       {transaction.kind === "income" ? "+" : "-"}
                       {money(Number(transaction.amount))}
                     </b>
 
                     <RowActions
-                      label={`transaksi ${transaction.title}`}
                       onEdit={() => editTransaction(transaction)}
                       onDelete={() =>
-                        void removeItem(
-                          "transaction",
+                        void deleteData(
+                          "transactions",
                           transaction.id,
                           `transaksi ${transaction.title}`
                         )
@@ -1154,9 +993,7 @@ export default function HomePage() {
                   </div>
                 ))}
 
-                {!transactions.length && (
-                  <p>Belum ada transaksi. Catat pemasukan atau pengeluaran.</p>
-                )}
+                {!transactions.length && <p>Belum ada transaksi.</p>}
               </div>
             </section>
 
@@ -1164,13 +1001,10 @@ export default function HomePage() {
               <div className="panel-heading">
                 <div>
                   <h2>Pos tabungan</h2>
-                  <p>Setoran tersimpan di akunmu</p>
+                  <p>Setoran tersimpan di akunmu.</p>
                 </div>
 
-                <button
-                  className="round-plus"
-                  onClick={() => openForm("goal")}
-                >
+                <button className="round-plus" onClick={() => openForm("goal")}>
                   <Plus size={17} />
                 </button>
               </div>
@@ -1180,41 +1014,23 @@ export default function HomePage() {
                   <div className="goal-row" key={goal.id}>
                     <div className="goal-top">
                       <div className="goal-name">
-                        <span>
-                          <Target size={14} />
-                        </span>
+                        <span><Target size={14} /></span>
 
                         <div>
                           <b>{goal.name}</b>
                           <small>
-                            {goal.target_date
-                              ? `Target ${new Date(
-                                  `${goal.target_date}T00:00:00`
-                                ).toLocaleDateString("id-ID")}`
-                              : "Tanpa tanggal target"}
+                            Target {money(Number(goal.target_amount))}
                           </small>
                         </div>
                       </div>
 
-                      <b>
-                        {Math.min(
-                          100,
-                          Math.round(
-                            (saved(goal.id) / Number(goal.target_amount)) *
-                              100
-                          )
-                        )}
-                        %
-                      </b>
-
                       <RowActions
-                        label={`pos tabungan ${goal.name}`}
                         onEdit={() => editGoal(goal)}
                         onDelete={() =>
-                          void removeItem(
-                            "goal",
+                          void deleteData(
+                            "savings_goals",
                             goal.id,
-                            `pos tabungan ${goal.name} beserta seluruh setorannya`
+                            `pos tabungan ${goal.name}`
                           )
                         }
                       />
@@ -1225,7 +1041,7 @@ export default function HomePage() {
                         style={{
                           width: `${Math.min(
                             100,
-                            (saved(goal.id) / Number(goal.target_amount)) *
+                            (savedFor(goal.id) / Number(goal.target_amount)) *
                               100
                           )}%`,
                         }}
@@ -1233,46 +1049,14 @@ export default function HomePage() {
                     </div>
 
                     <div className="goal-foot">
+                      <span>{money(savedFor(goal.id))} terkumpul</span>
                       <span>
-                        {money(saved(goal.id))} <small>terkumpul</small>
+                        {Math.round(
+                          (savedFor(goal.id) / Number(goal.target_amount)) *
+                            100
+                        )}
+                        %
                       </span>
-                      <span>Target {money(Number(goal.target_amount))}</span>
-                    </div>
-
-                    <div className="contribution-list">
-                      {contributions
-                        .filter(
-                          (contribution) => contribution.goal_id === goal.id
-                        )
-                        .map((contribution) => (
-                          <div
-                            className="contribution-row"
-                            key={contribution.id}
-                          >
-                            <small>
-                              Setoran -{" "}
-                              {new Date(
-                                contribution.created_at
-                              ).toLocaleDateString("id-ID")}
-                            </small>
-
-                            <b>{money(Number(contribution.amount))}</b>
-
-                            <RowActions
-                              label="setoran tabungan"
-                              onEdit={() => editContribution(contribution)}
-                              onDelete={() =>
-                                void removeItem(
-                                  "contribution",
-                                  contribution.id,
-                                  `setoran tabungan senilai ${money(
-                                    Number(contribution.amount)
-                                  )}`
-                                )
-                              }
-                            />
-                          </div>
-                        ))}
                     </div>
 
                     <button
@@ -1306,48 +1090,54 @@ export default function HomePage() {
             <div className="receipt-copy">
               <span className="ai-pill">DIDUKUNG AI</span>
               <h3>Foto atau unggah nota</h3>
-              <p>
-                AI membaca nominal dan kategori, lalu menyimpannya sebagai
-                pengeluaran.
-              </p>
+              <p>Format yang didukung: PNG, JPG, dan JPEG.</p>
             </div>
 
             <button
               disabled={receiptBusy}
-              onClick={() => fileRef.current?.click()}
+              onClick={() => cameraRef.current?.click()}
             >
-              {receiptBusy ? (
-                <LoaderCircle className="spin" size={17} />
-              ) : (
-                <Camera size={17} />
-              )}
-              Scan nota
+              {receiptBusy ? <LoaderCircle className="spin" size={17} /> : <Camera size={17} />}
+              Foto nota
+            </button>
+
+            <button
+              disabled={receiptBusy}
+              onClick={() => uploadRef.current?.click()}
+            >
+              <Upload size={17} />
+              Unggah nota
             </button>
 
             <input
-              ref={fileRef}
+              ref={cameraRef}
               type="file"
-              accept="image/*"
+              accept="image/png,image/jpeg"
               capture="environment"
               hidden
               onChange={(event) => {
                 const file = event.currentTarget.files?.[0];
+                if (file) void parseReceipt(file);
+                event.currentTarget.value = "";
+              }}
+            />
 
-                if (file) {
-                  void parseReceipt(file);
-                }
-
+            <input
+              ref={uploadRef}
+              type="file"
+              accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+              hidden
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                if (file) void parseReceipt(file);
                 event.currentTarget.value = "";
               }}
             />
           </section>
 
-          {receiptMsg && <div className="receipt-status">{receiptMsg}</div>}
-
-          <footer>
-            2026 Ruma Finance
-            <span>Data milik akunmu.</span>
-          </footer>
+          {receiptMessage && (
+            <div className="receipt-status">{receiptMessage}</div>
+          )}
 
           {busy && (
             <div className="loading-note">Memproses perubahan...</div>
@@ -1359,9 +1149,7 @@ export default function HomePage() {
         <div
           className="modal-backdrop"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              closeForm();
-            }
+            if (event.target === event.currentTarget) closeForm();
           }}
         >
           <section className="modal">
@@ -1383,13 +1171,13 @@ export default function HomePage() {
                     {modal === "transaction"
                       ? "transaksi"
                       : modal === "budget"
-                      ? "anggaran bulanan"
+                      ? "anggaran"
                       : modal === "goal"
                       ? "pos tabungan"
                       : "setoran tabungan"}
                   </h2>
 
-                  <p>Perubahan disimpan ke akunmu.</p>
+                  <p>Data tersimpan ke akunmu.</p>
                 </div>
               </div>
 
@@ -1422,7 +1210,7 @@ export default function HomePage() {
                         className={kind === "expense" ? "selected" : ""}
                         onClick={() => {
                           setKind("expense");
-                          setCategory("Belanja");
+                          setCategory(expenseCategories[0] || "Belanja");
                         }}
                       >
                         <ArrowUpRight size={15} />
@@ -1437,12 +1225,8 @@ export default function HomePage() {
                       autoFocus
                       value={title}
                       onChange={(event) => setTitle(event.target.value)}
+                      placeholder="Contoh: Makan siang"
                       required
-                      placeholder={
-                        kind === "income"
-                          ? "Contoh: Gaji bulanan"
-                          : "Contoh: Makan siang"
-                      }
                     />
                   </label>
 
@@ -1452,11 +1236,14 @@ export default function HomePage() {
                       value={category}
                       onChange={(event) => setCategory(event.target.value)}
                     >
-                      {(kind === "income"
-                        ? incomeCategories
-                        : expenseCategories
-                      ).map((item) => (
-                        <option key={item}>{item}</option>
+                      {!transactionCategories.includes(category) && (
+                        <option value={category}>{category}</option>
+                      )}
+
+                      {transactionCategories.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -1475,34 +1262,48 @@ export default function HomePage() {
                 </>
               )}
 
-              {(modal === "budget" || modal === "goal") && (
+              {modal === "budget" && (
+                <label>
+                  Kategori anggaran
+
+                  <select
+                    value={category}
+                    onChange={(event) => setCategory(event.target.value)}
+                  >
+                    {!expenseCategories.includes(category) && (
+                      <option value={category}>{category}</option>
+                    )}
+
+                    {expenseCategories.map((item) => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {modal === "goal" && (
                 <>
                   <label>
-                    {modal === "budget" ? "Kategori anggaran" : "Nama tujuan"}
-
+                    Nama tujuan
                     <input
                       autoFocus
                       value={title}
                       onChange={(event) => setTitle(event.target.value)}
+                      placeholder="Contoh: Dana darurat"
                       required
-                      placeholder={
-                        modal === "budget"
-                          ? "Contoh: Transportasi"
-                          : "Contoh: Dana darurat"
-                      }
                     />
                   </label>
 
-                  {modal === "goal" && (
-                    <label>
-                      Tanggal target (opsional)
-                      <input
-                        type="date"
-                        value={targetDate}
-                        onChange={(event) => setTargetDate(event.target.value)}
-                      />
-                    </label>
-                  )}
+                  <label>
+                    Target waktu
+                    <input
+                      type="date"
+                      value={targetDate}
+                      onChange={(event) => setTargetDate(event.target.value)}
+                    />
+                  </label>
                 </>
               )}
 
@@ -1528,7 +1329,7 @@ export default function HomePage() {
                 {modal === "transaction"
                   ? "Jumlah (Rp)"
                   : modal === "budget"
-                  ? "Batas per bulan (Rp)"
+                  ? "Batas anggaran (Rp)"
                   : modal === "goal"
                   ? "Target tabungan (Rp)"
                   : "Jumlah setoran (Rp)"}
@@ -1574,31 +1375,19 @@ export default function HomePage() {
 }
 
 function RowActions({
-  label,
   onEdit,
   onDelete,
 }: {
-  label: string;
   onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
     <span className="row-actions">
-      <button
-        type="button"
-        aria-label={`Edit ${label}`}
-        title={`Edit ${label}`}
-        onClick={onEdit}
-      >
+      <button type="button" onClick={onEdit} title="Edit">
         <Pencil size={13} />
       </button>
 
-      <button
-        type="button"
-        aria-label={`Hapus ${label}`}
-        title={`Hapus ${label}`}
-        onClick={onDelete}
-      >
+      <button type="button" onClick={onDelete} title="Hapus">
         <Trash2 size={13} />
       </button>
     </span>
