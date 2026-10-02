@@ -1,13 +1,11 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
   Camera,
-  CalendarDays,
   Check,
-  ChevronRight,
   CreditCard,
   LayoutDashboard,
   LoaderCircle,
@@ -22,6 +20,9 @@ import {
   X,
 } from "lucide-react";
 import { createClient } from "../lib/supabase/client";
+
+type Tab = "dashboard" | "transactions" | "budgets" | "goals";
+type Modal = "transaction" | "budget" | "goal" | "contribution";
 
 type Transaction = {
   id: string;
@@ -53,15 +54,18 @@ type Contribution = {
   created_at: string;
 };
 
-type ModalType = "transaction" | "budget" | "goal" | "contribution";
-type TabType = "dashboard" | "transactions" | "budgets" | "goals";
+const supabase =
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    ? createClient()
+    : null;
 
-const money = (amount: number) =>
+const money = (value: number) =>
   new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
-  }).format(amount);
+  }).format(value);
 
 const today = () => {
   const date = new Date();
@@ -72,7 +76,7 @@ const today = () => {
   )}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-const currentMonth = () => today().slice(0, 7);
+const monthKey = () => today().slice(0, 7);
 
 const defaultExpenseCategories = [
   "Makanan & minuman",
@@ -94,12 +98,6 @@ const incomeCategories = [
   "Lainnya",
 ];
 
-const supabase =
-  process.env.NEXT_PUBLIC_SUPABASE_URL &&
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-    ? createClient()
-    : null;
-
 export default function HomePage() {
   const [user, setUser] = useState<any>(null);
   const [ready, setReady] = useState(false);
@@ -107,8 +105,8 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
 
-  const [activeTab, setActiveTab] = useState<TabType>("dashboard");
-  const [modal, setModal] = useState<ModalType | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [modal, setModal] = useState<Modal | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -128,18 +126,11 @@ export default function HomePage() {
   const [targetDate, setTargetDate] = useState("");
   const [selectedGoal, setSelectedGoal] = useState("");
 
-  const [receiptBusy, setReceiptBusy] = useState(false);
   const [receiptMessage, setReceiptMessage] = useState("");
+  const [receiptBusy, setReceiptBusy] = useState(false);
 
   const cameraRef = useRef<HTMLInputElement>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
-
-  const tabTitle = {
-    dashboard: "Dashboard",
-    transactions: "Transaksi",
-    budgets: "Anggaran",
-    goals: "Pos tabungan",
-  }[activeTab];
 
   const notify = (message: string) => {
     setToast(message);
@@ -152,7 +143,7 @@ export default function HomePage() {
     setBusy(true);
     setError("");
 
-    const [transactionData, budgetData, goalData, contributionData] =
+    const [transactionResult, budgetResult, goalResult, contributionResult] =
       await Promise.all([
         supabase
           .from("transactions")
@@ -163,7 +154,7 @@ export default function HomePage() {
         supabase
           .from("monthly_budgets")
           .select("id,category,limit_amount,color")
-          .eq("period_key", currentMonth())
+          .eq("period_key", monthKey())
           .order("category"),
 
         supabase
@@ -178,18 +169,18 @@ export default function HomePage() {
       ]);
 
     const failure =
-      transactionData.error ||
-      budgetData.error ||
-      goalData.error ||
-      contributionData.error;
+      transactionResult.error ||
+      budgetResult.error ||
+      goalResult.error ||
+      contributionResult.error;
 
     if (failure) {
       setError(failure.message);
     } else {
-      setTransactions(transactionData.data || []);
-      setBudgets(budgetData.data || []);
-      setGoals(goalData.data || []);
-      setContributions(contributionData.data || []);
+      setTransactions(transactionResult.data || []);
+      setBudgets(budgetResult.data || []);
+      setGoals(goalResult.data || []);
+      setContributions(contributionResult.data || []);
     }
 
     setBusy(false);
@@ -201,13 +192,9 @@ export default function HomePage() {
       return;
     }
 
-    let mounted = true;
-
     supabase.auth.getUser().then(({ data }) => {
-      if (mounted) {
-        setUser(data.user);
-        setReady(true);
-      }
+      setUser(data.user);
+      setReady(true);
     });
 
     const {
@@ -217,46 +204,34 @@ export default function HomePage() {
       setReady(true);
     });
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
-    if (user) {
-      void loadData();
-    }
+    if (user) void loadData();
   }, [user, loadData]);
 
-  const expenseCategories = useMemo(
-    () =>
-      Array.from(
-        new Set([
-          ...defaultExpenseCategories,
-          ...budgets.map((budget) => budget.category),
-        ])
-      ),
-    [budgets]
+  const expenseCategories = Array.from(
+    new Set([
+      ...defaultExpenseCategories,
+      ...budgets.map((budget) => budget.category),
+    ])
   );
 
-  const transactionCategories =
-    kind === "income" ? incomeCategories : expenseCategories;
-
-  const thisMonthTransactions = transactions.filter(
-    (transaction) => transaction.occurred_on?.slice(0, 7) === currentMonth()
+  const currentTransactions = transactions.filter(
+    (transaction) => transaction.occurred_on.slice(0, 7) === monthKey()
   );
 
-  const income = thisMonthTransactions
+  const income = currentTransactions
     .filter((transaction) => transaction.kind === "income")
     .reduce((total, transaction) => total + Number(transaction.amount), 0);
 
-  const expense = thisMonthTransactions
+  const expense = currentTransactions
     .filter((transaction) => transaction.kind === "expense")
     .reduce((total, transaction) => total + Number(transaction.amount), 0);
 
   const spentFor = (budgetCategory: string) =>
-    thisMonthTransactions
+    currentTransactions
       .filter(
         (transaction) =>
           transaction.kind === "expense" &&
@@ -282,8 +257,14 @@ export default function HomePage() {
     0
   );
 
+  function closeModal() {
+    setModal(null);
+    setEditingId(null);
+    setError("");
+  }
+
   function openForm(
-    type: ModalType,
+    type: Modal,
     transactionKind: "income" | "expense" = "expense",
     goalId = ""
   ) {
@@ -296,58 +277,12 @@ export default function HomePage() {
     setTargetDate("");
     setTransactionDate(today());
     setKind(transactionKind);
-
-    if (type === "budget") {
-      setCategory(expenseCategories[0] || "Belanja");
-    } else if (transactionKind === "income") {
-      setCategory("Gaji");
-    } else {
-      setCategory(expenseCategories[0] || "Belanja");
-    }
-
+    setCategory(
+      transactionKind === "income"
+        ? "Gaji"
+        : expenseCategories[0] || "Belanja"
+    );
     setSelectedGoal(goalId || goals[0]?.id || "");
-  }
-
-  function closeForm() {
-    setModal(null);
-    setEditingId(null);
-    setError("");
-  }
-
-  function editTransaction(item: Transaction) {
-    setEditingId(item.id);
-    setModal("transaction");
-    setTitle(item.title);
-    setCategory(item.category);
-    setKind(item.kind);
-    setAmount(String(Number(item.amount)));
-    setTransactionDate(item.occurred_on);
-    setError("");
-  }
-
-  function editBudget(item: Budget) {
-    setEditingId(item.id);
-    setModal("budget");
-    setCategory(item.category);
-    setAmount(String(Number(item.limit_amount)));
-    setError("");
-  }
-
-  function editGoal(item: Goal) {
-    setEditingId(item.id);
-    setModal("goal");
-    setTitle(item.name);
-    setAmount(String(Number(item.target_amount)));
-    setTargetDate(item.target_date || "");
-    setError("");
-  }
-
-  function editContribution(item: Contribution) {
-    setEditingId(item.id);
-    setModal("contribution");
-    setSelectedGoal(item.goal_id);
-    setAmount(String(Number(item.amount)));
-    setError("");
   }
 
   async function auth(event: FormEvent) {
@@ -368,7 +303,26 @@ export default function HomePage() {
     if (result.error) {
       setError(result.error.message);
     } else if (authMode === "signup" && !result.data.session) {
-      notify("Cek email untuk konfirmasi akun.");
+      notify("Akun dibuat. Cek email jika konfirmasi email aktif.");
+    }
+  }
+
+  async function signInWithGoogle() {
+    if (!supabase) return;
+
+    setBusy(true);
+    setError("");
+
+    const { error: googleError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
+
+    if (googleError) {
+      setError(googleError.message);
+      setBusy(false);
     }
   }
 
@@ -377,9 +331,9 @@ export default function HomePage() {
 
     if (!supabase || !modal) return;
 
-    const numberAmount = Number(amount.replace(/\D/g, ""));
+    const numericAmount = Number(amount.replace(/\D/g, ""));
 
-    if (!numberAmount || numberAmount <= 0) {
+    if (!numericAmount || numericAmount <= 0) {
       setError("Masukkan jumlah lebih dari nol.");
       return;
     }
@@ -394,7 +348,7 @@ export default function HomePage() {
         title: title.trim(),
         category,
         kind,
-        amount: numberAmount,
+        amount: numericAmount,
         occurred_on: transactionDate,
       };
 
@@ -405,10 +359,10 @@ export default function HomePage() {
 
     if (modal === "budget") {
       const fields = {
-  category: category.trim(),
-  limit_amount: numberAmount,
-  color: "#78907b",
-};
+        category: category.trim(),
+        limit_amount: numericAmount,
+        color: "#78907b",
+      };
 
       result = editingId
         ? await supabase
@@ -416,20 +370,15 @@ export default function HomePage() {
             .update(fields)
             .eq("id", editingId)
         : await supabase.from("monthly_budgets").upsert(
-            {
-              period_key: currentMonth(),
-              ...fields,
-            },
-            {
-              onConflict: "user_id,period_key,category",
-            }
+            { period_key: monthKey(), ...fields },
+            { onConflict: "user_id,period_key,category" }
           );
     }
 
     if (modal === "goal") {
       const fields = {
         name: title.trim(),
-        target_amount: numberAmount,
+        target_amount: numericAmount,
         target_date: targetDate || null,
       };
 
@@ -444,7 +393,7 @@ export default function HomePage() {
     if (modal === "contribution") {
       const fields = {
         goal_id: selectedGoal,
-        amount: numberAmount,
+        amount: numericAmount,
       };
 
       result = editingId
@@ -462,30 +411,28 @@ export default function HomePage() {
       return;
     }
 
-    closeForm();
+    closeModal();
     notify(editingId ? "Perubahan berhasil disimpan" : "Data berhasil ditambahkan");
     await loadData();
   }
 
   async function deleteData(
-    table: "transactions" | "monthly_budgets" | "savings_goals" | "savings_contributions",
+    table:
+      | "transactions"
+      | "monthly_budgets"
+      | "savings_goals"
+      | "savings_contributions",
     id: string,
     label: string
   ) {
     if (!supabase) return;
 
-    if (!window.confirm(`Hapus ${label}? Tindakan ini tidak dapat dibatalkan.`)) {
-      return;
-    }
-
-    setBusy(true);
+    if (!window.confirm(`Hapus ${label}?`)) return;
 
     const { error: deleteError } = await supabase
       .from(table)
       .delete()
       .eq("id", id);
-
-    setBusy(false);
 
     if (deleteError) {
       setError(deleteError.message);
@@ -496,37 +443,39 @@ export default function HomePage() {
     await loadData();
   }
 
-  function normalizeReceiptCategory(rawCategory: string) {
-    const text = rawCategory.toLowerCase();
+  function receiptCategory(rawCategory: string) {
+    const value = rawCategory.toLowerCase();
 
-    if (text.includes("makan") || text.includes("minum") || text.includes("kopi")) {
-      return expenseCategories.find((item) => item === "Makanan & minuman") || "Lainnya";
+    if (value.includes("makan") || value.includes("kopi")) {
+      return "Makanan & minuman";
     }
 
-    if (text.includes("transport") || text.includes("bensin") || text.includes("parkir")) {
-      return expenseCategories.find((item) => item === "Transportasi") || "Lainnya";
+    if (
+      value.includes("bensin") ||
+      value.includes("parkir") ||
+      value.includes("transport")
+    ) {
+      return "Transportasi";
     }
 
-    if (text.includes("tagih") || text.includes("listrik") || text.includes("internet")) {
-      return expenseCategories.find((item) => item === "Tagihan") || "Lainnya";
-    }
-
-    if (text.includes("sehat") || text.includes("obat") || text.includes("rumah sakit")) {
-      return expenseCategories.find((item) => item === "Kesehatan") || "Lainnya";
+    if (
+      value.includes("internet") ||
+      value.includes("listrik") ||
+      value.includes("tagihan")
+    ) {
+      return "Tagihan";
     }
 
     return expenseCategories.find(
-      (item) => item.toLowerCase() === text
+      (categoryItem) => categoryItem.toLowerCase() === value
     ) || "Lainnya";
   }
 
   async function parseReceipt(file: File) {
     if (!supabase) return;
 
-    const allowedTypes = ["image/png", "image/jpeg"];
-
-    if (!allowedTypes.includes(file.type)) {
-      setReceiptMessage("Gunakan gambar PNG, JPG, atau JPEG.");
+    if (!["image/png", "image/jpeg"].includes(file.type)) {
+      setReceiptMessage("Gunakan file PNG, JPG, atau JPEG.");
       return;
     }
 
@@ -542,42 +491,38 @@ export default function HomePage() {
         body: form,
       });
 
-      const json = await response.json();
+      const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(json.error || "Nota gagal dibaca.");
+        throw new Error(result.error || "Nota gagal dibaca.");
       }
 
-      const transaction = json.transaction;
-      const categoryFromReceipt = normalizeReceiptCategory(
-        transaction.category || "Lainnya"
-      );
+      const receipt = result.transaction;
+      const categoryFromReceipt = receiptCategory(receipt.category || "Lainnya");
 
       const { error: insertError } = await supabase
         .from("transactions")
         .insert({
-          title: transaction.title,
+          title: receipt.title,
           category: categoryFromReceipt,
           kind: "expense",
-          amount: Number(transaction.amount),
+          amount: Number(receipt.amount),
           occurred_on: today(),
         });
 
-      if (insertError) {
-        throw insertError;
-      }
+      if (insertError) throw insertError;
 
       setReceiptMessage(
-        `Tersimpan di kategori ${categoryFromReceipt}: ${transaction.title}`
+        `Nota tersimpan ke kategori ${categoryFromReceipt}.`
       );
 
       notify("Pengeluaran dari nota berhasil dicatat");
       await loadData();
-    } catch (parseError) {
+    } catch (receiptError) {
       setReceiptMessage(
-        parseError instanceof Error
-          ? parseError.message
-          : "Terjadi kesalahan saat membaca nota."
+        receiptError instanceof Error
+          ? receiptError.message
+          : "Terjadi kesalahan."
       );
     } finally {
       setReceiptBusy(false);
@@ -585,7 +530,7 @@ export default function HomePage() {
   }
 
   if (!ready) {
-    return <main className="shell"><div className="auth-card">Memuat akun...</div></main>;
+    return <main className="shell"><div className="auth-card">Memuat...</div></main>;
   }
 
   if (!user) {
@@ -618,8 +563,8 @@ export default function HomePage() {
               Kata sandi
               <input
                 type="password"
-                value={password}
                 minLength={8}
+                value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
@@ -631,6 +576,15 @@ export default function HomePage() {
               {authMode === "login" ? "Masuk" : "Daftar"}
             </button>
           </form>
+
+          <button
+            type="button"
+            className="secondary-button google-login-button"
+            onClick={signInWithGoogle}
+            disabled={busy}
+          >
+            Masuk dengan Google
+          </button>
 
           <button
             className="auth-switch"
@@ -675,7 +629,6 @@ export default function HomePage() {
           >
             <CreditCard size={18} />
             <span>Transaksi</span>
-            <span className="nav-count">{transactions.length}</span>
           </button>
 
           <button
@@ -715,174 +668,189 @@ export default function HomePage() {
 
       <section className="main-area">
         <header className="topbar">
-          <div className="crumb">
-            <span>Workspace</span>
-            <ChevronRight size={14} />
-            <b>{tabTitle}</b>
-          </div>
-
-          <div className="top-actions">
-            <div className="month-select">
-              <CalendarDays size={16} />
-              {new Intl.DateTimeFormat("id-ID", {
-                month: "long",
-                year: "numeric",
-              }).format(new Date())}
-            </div>
-          </div>
+          <div className="crumb"><b>{activeTab}</b></div>
         </header>
 
         <div className="content">
-          <div className="welcome-row">
-            <div>
-              <div className="eyebrow">RUMA FINANCE</div>
-
-              <h1>
-                {activeTab === "dashboard" && "Ringkasan keuanganmu"}
-                {activeTab === "transactions" && "Transaksi"}
-                {activeTab === "budgets" && "Anggaran bulanan"}
-                {activeTab === "goals" && "Pos tabungan"}
-              </h1>
-
-              <p>
-                {activeTab === "dashboard" && "Pantau arus kas dan anggaran bulan ini."}
-                {activeTab === "transactions" && "Catat pemasukan, pengeluaran, atau unggah nota."}
-                {activeTab === "budgets" && "Kategori anggaran terhubung dengan pencatatan pengeluaran."}
-                {activeTab === "goals" && "Kelola tujuan dan setoran tabungan."}
-              </p>
-            </div>
-
-            {(activeTab === "dashboard" || activeTab === "transactions") && (
-              <div className="welcome-actions">
-                <button
-                  className="income-button"
-                  onClick={() => openForm("transaction", "income")}
-                >
-                  <ArrowDownLeft size={16} />
-                  Catat pemasukan
-                </button>
-
-                <button
-                  className="primary-button"
-                  onClick={() => openForm("transaction", "expense")}
-                >
-                  <Plus size={17} />
-                  Catat pengeluaran
-                </button>
-              </div>
-            )}
-
-            {activeTab === "budgets" && (
-              <button className="primary-button" onClick={() => openForm("budget")}>
-                <Plus size={17} />
-                Tambah anggaran
-              </button>
-            )}
-
-            {activeTab === "goals" && (
-              <button className="primary-button" onClick={() => openForm("goal")}>
-                <Plus size={17} />
-                Buat pos tabungan
-              </button>
-            )}
-          </div>
-
           {error && <p className="error-message">{error}</p>}
 
-          <div className={`stat-grid ${activeTab !== "dashboard" ? "tab-hidden" : ""}`}>
-            <article className="stat-card balance-card">
-              <div className="stat-heading">Saldo bersih bulan ini</div>
-              <div className="stat-value">{money(income - expense)}</div>
-              <div className="stat-foot">Pemasukan dikurangi pengeluaran</div>
-            </article>
-
-            <article className="stat-card">
-              <div className="stat-heading">
-                Pemasukan
-                <span className="stat-icon income-icon">
-                  <ArrowDownLeft size={17} />
-                </span>
-              </div>
-
-              <div className="stat-value">{money(income)}</div>
-              <div className="stat-foot">Bulan ini</div>
-            </article>
-
-            <article className="stat-card">
-              <div className="stat-heading">
-                Pengeluaran
-                <span className="stat-icon expense-icon">
-                  <ArrowUpRight size={17} />
-                </span>
-              </div>
-
-              <div className="stat-value">{money(expense)}</div>
-              <div className="stat-foot">Bulan ini</div>
-            </article>
-          </div>
-
-          <div className={`dashboard-grid active-${activeTab}`}>
-            <section className="panel cashflow-panel">
-              <div className="panel-heading">
+          {activeTab === "dashboard" && (
+            <>
+              <div className="welcome-row">
                 <div>
-                  <h2>Arus kas</h2>
-                  <p>Enam bulan terakhir</p>
+                  <div className="eyebrow">RUMA FINANCE</div>
+                  <h1>Ringkasan keuanganmu</h1>
+                  <p>Rekap cashflow bulan ini.</p>
                 </div>
               </div>
 
-              <div className="chart-legend">
-                <span><i className="legend-in" /> Pemasukan</span>
-                <span><i className="legend-out" /> Pengeluaran</span>
-              </div>
+              <div className="stat-grid">
+                <article className="stat-card balance-card">
+                  <div className="stat-heading">Saldo bersih bulan ini</div>
+                  <div className="stat-value">{money(income - expense)}</div>
+                </article>
 
-              <div className="chart">
-                <div className="y-labels">
-                  <span>{money(Math.max(income, expense, 1))}</span>
-                  <span>{money(Math.max(income, expense, 1) / 2)}</span>
-                  <span>Rp 0</span>
+                <article className="stat-card">
+                  <div className="stat-heading">Pemasukan</div>
+                  <div className="stat-value">{money(income)}</div>
+                </article>
+
+                <article className="stat-card">
+                  <div className="stat-heading">Pengeluaran</div>
+                  <div className="stat-value">{money(expense)}</div>
+                </article>
+              </div>
+            </>
+          )}
+
+          {activeTab === "transactions" && (
+            <>
+              <div className="welcome-row">
+                <div>
+                  <h1>Transaksi</h1>
+                  <p>Pilih kategori anggaran saat mencatat pengeluaran.</p>
                 </div>
 
-                <div className="plot">
-                  <div className="gridline g1" />
-                  <div className="gridline g2" />
-                  <div className="gridline g4" />
+                <div className="welcome-actions">
+                  <button
+                    className="income-button"
+                    onClick={() => openForm("transaction", "income")}
+                  >
+                    <ArrowDownLeft size={16} />
+                    Pemasukan
+                  </button>
 
-                  <svg viewBox="0 0 700 205" preserveAspectRatio="none">
-                    <polyline
-                      points="0,185 140,180 280,160 420,170 560,120 700,80"
-                      fill="none"
-                      stroke="#758d79"
-                      strokeWidth="3"
-                    />
-                    <polyline
-                      points="0,185 140,180 280,175 420,165 560,150 700,135"
-                      fill="none"
-                      stroke="#e6ad70"
-                      strokeWidth="3"
-                    />
-                  </svg>
+                  <button
+                    className="primary-button"
+                    onClick={() => openForm("transaction", "expense")}
+                  >
+                    <Plus size={16} />
+                    Pengeluaran
+                  </button>
+                </div>
+              </div>
 
-                  <div className="x-labels">
-                    <span>Mei</span>
-                    <span>Jun</span>
-                    <span>Jul</span>
-                    <span>Agu</span>
-                    <span>Sep</span>
-                    <span>Okt</span>
+              <section className="receipt-banner">
+                <div className="receipt-art">
+                  <div className="art-circle"><Camera size={25} /></div>
+                </div>
+
+                <div className="receipt-copy">
+                  <span className="ai-pill">DIDUKUNG AI</span>
+                  <h3>Foto atau unggah nota</h3>
+                  <p>Format: PNG, JPG, dan JPEG.</p>
+                </div>
+
+                <button onClick={() => cameraRef.current?.click()}>
+                  <Camera size={16} />
+                  Foto nota
+                </button>
+
+                <button onClick={() => uploadRef.current?.click()}>
+                  <Upload size={16} />
+                  Unggah nota
+                </button>
+
+                <input
+                  ref={cameraRef}
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  capture="environment"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) void parseReceipt(file);
+                    event.currentTarget.value = "";
+                  }}
+                />
+
+                <input
+                  ref={uploadRef}
+                  type="file"
+                  accept=".png,.jpg,.jpeg,image/png,image/jpeg"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0];
+                    if (file) void parseReceipt(file);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </section>
+
+              {receiptMessage && (
+                <div className="receipt-status">{receiptMessage}</div>
+              )}
+
+              <section className="panel transactions-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Daftar transaksi</h2>
+                    <p>{transactions.length} transaksi tersimpan</p>
                   </div>
                 </div>
-              </div>
-            </section>
 
+                <div className="transaction-list">
+                  {transactions.map((transaction) => (
+                    <div className="transaction-row" key={transaction.id}>
+                      <span className="transaction-icon">
+                        {transaction.kind === "income" ? (
+                          <ArrowDownLeft size={15} />
+                        ) : (
+                          <ArrowUpRight size={15} />
+                        )}
+                      </span>
+
+                      <div className="transaction-name">
+                        <b>{transaction.title}</b>
+                        <small>
+                          {transaction.category} -{" "}
+                          {new Date(
+                            `${transaction.occurred_on}T00:00:00`
+                          ).toLocaleDateString("id-ID")}
+                        </small>
+                      </div>
+
+                      <b className={transaction.kind === "income" ? "amount-in" : "amount-out"}>
+                        {transaction.kind === "income" ? "+" : "-"}
+                        {money(Number(transaction.amount))}
+                      </b>
+
+                      <Actions
+                        onEdit={() => {
+                          setEditingId(transaction.id);
+                          setModal("transaction");
+                          setTitle(transaction.title);
+                          setCategory(transaction.category);
+                          setKind(transaction.kind);
+                          setAmount(String(transaction.amount));
+                          setTransactionDate(transaction.occurred_on);
+                        }}
+                        onDelete={() =>
+                          void deleteData(
+                            "transactions",
+                            transaction.id,
+                            transaction.title
+                          )
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </>
+          )}
+
+          {activeTab === "budgets" && (
             <section className="panel budget-panel">
               <div className="panel-heading">
                 <div>
                   <h2>Anggaran bulan ini</h2>
-                  <p>Pengeluaran dihitung berdasarkan kategori yang sama.</p>
+                  <p>Kategori di sini otomatis muncul pada pengeluaran.</p>
                 </div>
 
-                <button className="text-link" onClick={() => openForm("budget")}>
-                  Tambah <Plus size={14} />
+                <button className="primary-button" onClick={() => openForm("budget")}>
+                  <Plus size={16} />
+                  Tambah
                 </button>
               </div>
 
@@ -906,13 +874,18 @@ export default function HomePage() {
                         {money(Number(budget.limit_amount))}
                       </b>
 
-                      <RowActions
-                        onEdit={() => editBudget(budget)}
+                      <Actions
+                        onEdit={() => {
+                          setEditingId(budget.id);
+                          setModal("budget");
+                          setCategory(budget.category);
+                          setAmount(String(budget.limit_amount));
+                        }}
                         onDelete={() =>
                           void deleteData(
                             "monthly_budgets",
                             budget.id,
-                            `anggaran ${budget.category}`
+                            budget.category
                           )
                         }
                       />
@@ -933,79 +906,21 @@ export default function HomePage() {
                     </div>
                   </div>
                 ))}
-
-                {!budgets.length && <p>Belum ada anggaran.</p>}
               </div>
             </section>
+          )}
 
-            <section className="panel transactions-panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>Transaksi</h2>
-                  <p>Pilih kategori yang sudah dibuat di anggaran.</p>
-                </div>
-
-                <button
-                  className="text-link"
-                  onClick={() => openForm("transaction", "expense")}
-                >
-                  <Plus size={14} />
-                  Tambah
-                </button>
-              </div>
-
-              <div className="transaction-list">
-                {transactions.map((transaction) => (
-                  <div className="transaction-row" key={transaction.id}>
-                    <span className="transaction-icon">
-                      {transaction.kind === "income" ? (
-                        <ArrowDownLeft size={15} />
-                      ) : (
-                        <ArrowUpRight size={15} />
-                      )}
-                    </span>
-
-                    <div className="transaction-name">
-                      <b>{transaction.title}</b>
-                      <small>
-                        {transaction.category} -{" "}
-                        {new Date(
-                          `${transaction.occurred_on}T00:00:00`
-                        ).toLocaleDateString("id-ID")}
-                      </small>
-                    </div>
-
-                    <b className={transaction.kind === "income" ? "amount-in" : "amount-out"}>
-                      {transaction.kind === "income" ? "+" : "-"}
-                      {money(Number(transaction.amount))}
-                    </b>
-
-                    <RowActions
-                      onEdit={() => editTransaction(transaction)}
-                      onDelete={() =>
-                        void deleteData(
-                          "transactions",
-                          transaction.id,
-                          `transaksi ${transaction.title}`
-                        )
-                      }
-                    />
-                  </div>
-                ))}
-
-                {!transactions.length && <p>Belum ada transaksi.</p>}
-              </div>
-            </section>
-
+          {activeTab === "goals" && (
             <section className="panel goals-panel">
               <div className="panel-heading">
                 <div>
                   <h2>Pos tabungan</h2>
-                  <p>Setoran tersimpan di akunmu.</p>
+                  <p>Tujuan dan setoranmu.</p>
                 </div>
 
-                <button className="round-plus" onClick={() => openForm("goal")}>
-                  <Plus size={17} />
+                <button className="primary-button" onClick={() => openForm("goal")}>
+                  <Plus size={16} />
+                  Tambah
                 </button>
               </div>
 
@@ -1015,22 +930,25 @@ export default function HomePage() {
                     <div className="goal-top">
                       <div className="goal-name">
                         <span><Target size={14} /></span>
-
                         <div>
                           <b>{goal.name}</b>
-                          <small>
-                            Target {money(Number(goal.target_amount))}
-                          </small>
+                          <small>Target {money(Number(goal.target_amount))}</small>
                         </div>
                       </div>
 
-                      <RowActions
-                        onEdit={() => editGoal(goal)}
+                      <Actions
+                        onEdit={() => {
+                          setEditingId(goal.id);
+                          setModal("goal");
+                          setTitle(goal.name);
+                          setAmount(String(goal.target_amount));
+                          setTargetDate(goal.target_date || "");
+                        }}
                         onDelete={() =>
                           void deleteData(
                             "savings_goals",
                             goal.id,
-                            `pos tabungan ${goal.name}`
+                            goal.name
                           )
                         }
                       />
@@ -1041,8 +959,7 @@ export default function HomePage() {
                         style={{
                           width: `${Math.min(
                             100,
-                            (savedFor(goal.id) / Number(goal.target_amount)) *
-                              100
+                            (savedFor(goal.id) / Number(goal.target_amount)) * 100
                           )}%`,
                         }}
                       />
@@ -1050,140 +967,39 @@ export default function HomePage() {
 
                     <div className="goal-foot">
                       <span>{money(savedFor(goal.id))} terkumpul</span>
-                      <span>
-                        {Math.round(
-                          (savedFor(goal.id) / Number(goal.target_amount)) *
-                            100
-                        )}
-                        %
-                      </span>
+                      <span>Target {money(Number(goal.target_amount))}</span>
                     </div>
 
                     <button
                       className="goal-action"
-                      onClick={() =>
-                        openForm("contribution", "expense", goal.id)
-                      }
+                      onClick={() => openForm("contribution", "expense", goal.id)}
                     >
                       <Plus size={13} />
                       Tambah setoran
                     </button>
                   </div>
                 ))}
-
-                {!goals.length && <p>Belum ada tujuan tabungan.</p>}
               </div>
             </section>
-          </div>
-
-          <section
-            className={`receipt-banner ${
-              activeTab !== "transactions" ? "tab-hidden" : ""
-            }`}
-          >
-            <div className="receipt-art">
-              <div className="art-circle">
-                <Camera size={25} />
-              </div>
-            </div>
-
-            <div className="receipt-copy">
-              <span className="ai-pill">DIDUKUNG AI</span>
-              <h3>Foto atau unggah nota</h3>
-              <p>Format yang didukung: PNG, JPG, dan JPEG.</p>
-            </div>
-
-            <button
-              disabled={receiptBusy}
-              onClick={() => cameraRef.current?.click()}
-            >
-              {receiptBusy ? <LoaderCircle className="spin" size={17} /> : <Camera size={17} />}
-              Foto nota
-            </button>
-
-            <button
-              disabled={receiptBusy}
-              onClick={() => uploadRef.current?.click()}
-            >
-              <Upload size={17} />
-              Unggah nota
-            </button>
-
-            <input
-              ref={cameraRef}
-              type="file"
-              accept="image/png,image/jpeg"
-              capture="environment"
-              hidden
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                if (file) void parseReceipt(file);
-                event.currentTarget.value = "";
-              }}
-            />
-
-            <input
-              ref={uploadRef}
-              type="file"
-              accept=".png,.jpg,.jpeg,image/png,image/jpeg"
-              hidden
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                if (file) void parseReceipt(file);
-                event.currentTarget.value = "";
-              }}
-            />
-          </section>
-
-          {receiptMessage && (
-            <div className="receipt-status">{receiptMessage}</div>
           )}
 
-          {busy && (
-            <div className="loading-note">Memproses perubahan...</div>
-          )}
+          {busy && <div className="loading-note">Memproses...</div>}
         </div>
       </section>
 
       {modal && (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeForm();
-          }}
-        >
+        <div className="modal-backdrop">
           <section className="modal">
             <div className="modal-title">
               <div>
-                <span className="modal-icon">
-                  {modal === "transaction" ? (
-                    <Wallet size={18} />
-                  ) : modal === "budget" ? (
-                    <PieChart size={18} />
-                  ) : (
-                    <Target size={18} />
-                  )}
-                </span>
-
+                <span className="modal-icon"><Wallet size={18} /></span>
                 <div>
-                  <h2>
-                    {editingId ? "Edit " : "Tambah "}
-                    {modal === "transaction"
-                      ? "transaksi"
-                      : modal === "budget"
-                      ? "anggaran"
-                      : modal === "goal"
-                      ? "pos tabungan"
-                      : "setoran tabungan"}
-                  </h2>
-
-                  <p>Data tersimpan ke akunmu.</p>
+                  <h2>{editingId ? "Edit data" : "Tambah data"}</h2>
+                  <p>Data tersimpan di akunmu.</p>
                 </div>
               </div>
 
-              <button type="button" onClick={closeForm}>
-                <X size={19} />
-              </button>
+              <button onClick={closeModal}><X size={19} /></button>
             </div>
 
             <form onSubmit={save}>
@@ -1191,7 +1007,6 @@ export default function HomePage() {
                 <>
                   <label>
                     Jenis transaksi
-
                     <div className="kind-switch">
                       <button
                         type="button"
@@ -1201,7 +1016,6 @@ export default function HomePage() {
                           setCategory("Gaji");
                         }}
                       >
-                        <ArrowDownLeft size={15} />
                         Pemasukan
                       </button>
 
@@ -1210,10 +1024,9 @@ export default function HomePage() {
                         className={kind === "expense" ? "selected" : ""}
                         onClick={() => {
                           setKind("expense");
-                          setCategory(expenseCategories[0] || "Belanja");
+                          setCategory(expenseCategories[0]);
                         }}
                       >
-                        <ArrowUpRight size={15} />
                         Pengeluaran
                       </button>
                     </div>
@@ -1222,10 +1035,8 @@ export default function HomePage() {
                   <label>
                     Nama transaksi
                     <input
-                      autoFocus
                       value={title}
                       onChange={(event) => setTitle(event.target.value)}
-                      placeholder="Contoh: Makan siang"
                       required
                     />
                   </label>
@@ -1236,61 +1047,53 @@ export default function HomePage() {
                       value={category}
                       onChange={(event) => setCategory(event.target.value)}
                     >
-                      {!transactionCategories.includes(category) && (
-                        <option value={category}>{category}</option>
+                      {(kind === "income" ? incomeCategories : expenseCategories).map(
+                        (item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        )
                       )}
-
-                      {transactionCategories.map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
                     </select>
                   </label>
 
                   <label>
-                    Tanggal transaksi
+                    Tanggal
                     <input
                       type="date"
                       value={transactionDate}
-                      onChange={(event) =>
-                        setTransactionDate(event.target.value)
-                      }
-                      required
+                      onChange={(event) => setTransactionDate(event.target.value)}
                     />
                   </label>
                 </>
               )}
 
-             {modal === "budget" && (
-  <label>
-    Kategori anggaran
+              {modal === "budget" && (
+                <label>
+                  Kategori anggaran
+                  <input
+                    list="budget-categories"
+                    value={category}
+                    onChange={(event) => setCategory(event.target.value)}
+                    placeholder="Pilih atau tulis kategori baru"
+                    required
+                  />
 
-    <input
-      list="budget-category-options"
-      value={category}
-      onChange={(event) => setCategory(event.target.value)}
-      placeholder="Pilih atau ketik kategori baru"
-      required
-    />
-
-    <datalist id="budget-category-options">
-      {expenseCategories.map((item) => (
-        <option key={item} value={item} />
-      ))}
-    </datalist>
-  </label>
-)}
+                  <datalist id="budget-categories">
+                    {expenseCategories.map((item) => (
+                      <option key={item} value={item} />
+                    ))}
+                  </datalist>
+                </label>
+              )}
 
               {modal === "goal" && (
                 <>
                   <label>
                     Nama tujuan
                     <input
-                      autoFocus
                       value={title}
                       onChange={(event) => setTitle(event.target.value)}
-                      placeholder="Contoh: Dana darurat"
                       required
                     />
                   </label>
@@ -1309,11 +1112,9 @@ export default function HomePage() {
               {modal === "contribution" && (
                 <label>
                   Pos tabungan
-
                   <select
                     value={selectedGoal}
                     onChange={(event) => setSelectedGoal(event.target.value)}
-                    required
                   >
                     {goals.map((goal) => (
                       <option key={goal.id} value={goal.id}>
@@ -1325,19 +1126,11 @@ export default function HomePage() {
               )}
 
               <label>
-                {modal === "transaction"
-                  ? "Jumlah (Rp)"
-                  : modal === "budget"
-                  ? "Batas anggaran (Rp)"
-                  : modal === "goal"
-                  ? "Target tabungan (Rp)"
-                  : "Jumlah setoran (Rp)"}
-
+                Jumlah (Rp)
                 <input
                   inputMode="numeric"
                   value={amount}
                   onChange={(event) => setAmount(event.target.value)}
-                  placeholder="500000"
                   required
                 />
               </label>
@@ -1348,14 +1141,14 @@ export default function HomePage() {
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={closeForm}
+                  onClick={closeModal}
                 >
                   Batal
                 </button>
 
                 <button className="primary-button" disabled={busy}>
                   <Check size={16} />
-                  {editingId ? "Simpan perubahan" : "Simpan"}
+                  Simpan
                 </button>
               </div>
             </form>
@@ -1373,7 +1166,7 @@ export default function HomePage() {
   );
 }
 
-function RowActions({
+function Actions({
   onEdit,
   onDelete,
 }: {
